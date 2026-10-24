@@ -1,8 +1,6 @@
-# ZeroDay Threat Intelligence Monitor
+# AI Threat Intelligence Monitoring Assistant — ZeroDay
 
-## Phase 1 and 2 scaffold
-
-The app captures a comma-separated software stack and establishes the shared finding model in `src/models.py`. Phase 2 adds TinyFish Search + Fetch and displays the result links, fetched page content, and fetch time. CVE extraction and risk scoring belong to later phases.
+A hackathon project exploring cybersecurity solutions for ZeroDay vulnerabilities. The app captures a comma-separated software stack and searches public security advisories with TinyFish Search + Fetch. Search results include source links, fetched page content, and fetch times. CVE extraction, stack matching, and risk scoring are planned for later phases.
 
 ## Run locally
 
