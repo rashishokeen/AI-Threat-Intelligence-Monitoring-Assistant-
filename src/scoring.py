@@ -4,6 +4,17 @@ from datetime import date, datetime, timezone
 from urllib.parse import urlparse
 
 
+_COMPOUND_SUFFIXES = {"co.uk", "org.uk", "gov.uk", "com.au", "net.au", "co.nz", "com.br"}
+
+
+def _registrable_domain(url: str) -> str:
+    host = (urlparse(url).hostname or "").casefold().rstrip(".")
+    labels = host.split(".") if host else []
+    if len(labels) >= 3 and ".".join(labels[-2:]) in _COMPOUND_SUFFIXES:
+        return ".".join(labels[-3:])
+    return ".".join(labels[-2:]) if len(labels) >= 2 else host
+
+
 def recency_score(published_at: str) -> float | None:
     """Convert publication age into the formula's 0-10 recency component."""
     published = None
@@ -38,16 +49,17 @@ def recency_score(published_at: str) -> float | None:
 
 def _is_primary_source(url: str, products: list[str]) -> bool:
     host = (urlparse(url).hostname or "").casefold()
-    if host.endswith(".gov") or host in {"cve.org", "www.cve.org", "nvd.nist.gov"}:
+    if host.endswith(".gov") or host.endswith(".mitre.org") or host in {"cve.org", "www.cve.org"}:
         return True
-    host_words = set(host.replace("-", ".").split("."))
+    domain = _registrable_domain(url).split(".")[0]
+    domain_words = set(domain.replace("-", " ").split())
     product_words = {
         word.casefold()
         for product in products
         for word in product.replace("-", " ").split()
         if len(word) > 2
     }
-    return bool(host_words & product_words)
+    return bool(domain_words & product_words)
 
 
 def score_finding(finding: dict, stack_match: dict) -> dict:
@@ -94,29 +106,44 @@ def score_finding(finding: dict, stack_match: dict) -> dict:
     sources = finding.get("supporting_sources") or [
         {"source_url": finding.get("source_url", ""), "products": products}
     ]
-    unique_sources = {
-        source["source_url"]: source
-        for source in sources
-        if source.get("source_url")
-    }
+    unique_sources = {}
+    for source in sources:
+        url = source.get("source_url", "")
+        domain = _registrable_domain(url)
+        if domain:
+            unique_sources.setdefault(domain, {**source, "source_url": url})
     source_count = max(1, len(unique_sources))
     primary_count = sum(
-        _is_primary_source(url, source.get("products") or products)
-        for url, source in unique_sources.items()
+        _is_primary_source(source["source_url"], source.get("products") or products)
+        for source in unique_sources.values()
     )
-    if len(components) < 4:
-        confidence = "Low"
-    elif source_count >= 3 and primary_count >= 2:
+    verified_quote = bool(finding.get("evidence_quote_verified"))
+    if len(components) == 4 and not estimated and source_count >= 2 and primary_count >= 2 and verified_quote:
         confidence = "High"
-    elif source_count >= 2 and primary_count >= 1:
+        confidence_reason = "All four factors are supported by multiple identified primary sources."
+    elif len(components) >= 3 and primary_count >= 1 and verified_quote:
         confidence = "Medium"
+        confidence_reason = f"{len(components)} of 4 factors are available with a verified primary source."
+        if estimated:
+            confidence_reason += f" {len(estimated)} factor(s) use an estimate."
     else:
         confidence = "Low"
+        reasons = []
+        if not verified_quote:
+            reasons.append("source quote is not verified")
+        if len(components) < 3:
+            reasons.append(f"only {len(components)} of 4 scoring factors are supported")
+        if primary_count == 0:
+            reasons.append("no primary source was identified")
+        if estimated:
+            reasons.append("one or more values are estimated")
+        confidence_reason = "; ".join(reasons) or "The evidence comes from too few independent sources."
 
     if len(components) < 2 or not finding.get("evidence_quote_verified"):
         return {
             "score": None,
-            "confidence": "Low",
+            "confidence": confidence,
+            "confidence_reason": confidence_reason,
             "missing_evidence": missing or ["at least two supported scoring factors"],
         }
 
@@ -125,6 +152,7 @@ def score_finding(finding: dict, stack_match: dict) -> dict:
     return {
         "score": round(score, 1),
         "confidence": confidence,
+        "confidence_reason": confidence_reason,
         "provisional": len(components) < 4 or bool(estimated),
         "available_factor_count": len(components),
         "estimated_factors": estimated,
