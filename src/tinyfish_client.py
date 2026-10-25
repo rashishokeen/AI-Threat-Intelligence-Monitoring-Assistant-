@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -35,6 +36,20 @@ def _normalise_url(value: str) -> str | None:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return None
     return value
+
+
+def linked_advisory_detail_url(page_text: str, cve_id: str | None) -> str | None:
+    """Find a linked vendor bulletin on an index page's row for this CVE."""
+    if not cve_id:
+        return None
+    for line in page_text.splitlines():
+        if cve_id.casefold() not in line.casefold():
+            continue
+        for match in re.finditer(r"\[[^\]]+\]\((https?://[^)\s]+)\)", line):
+            candidate = _normalise_url(match.group(1))
+            if candidate and re.search(r"/security-bulletin/zsb-\d+/?(?:$|[?#])", candidate, re.IGNORECASE):
+                return candidate
+    return None
 
 
 def search_advisories(products: list[str], api_key: str) -> list[dict]:

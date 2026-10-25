@@ -21,8 +21,8 @@ class Finding:
     source_url: str
     fetched_at: str                 # ISO date/time string
     stack_match: float | None       # 0-10; None means not assessed
-    score: float | None             # 0-10; None means not scored
-    confidence: Confidence
+    score: float | None             # 0-10; None means insufficient evidence
+    confidence: Confidence | None
     suggested_fix: str | None
     evidence: str                   # Short excerpt or explanation from the source
 
